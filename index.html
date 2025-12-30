@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Live Next Result Predictor (FINAL FIX)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body{background:#0b0b0b;color:#fff;font-family:Arial;padding:10px}
+h2{text-align:center;color:#00ffd5}
+.box{background:#111;padding:12px;margin:10px 0;border-radius:6px;text-align:center}
+.pred{font-size:26px;color:#00ff88;font-weight:bold}
+.small{color:#ffcc00}
+.big{color:#00ff00}
+.red{color:#ff4d4d}
+.green{color:#00ff88}
+.violet{color:#cc66ff}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+th,td{border-bottom:1px solid #222;padding:6px;text-align:center}
+th{color:#00ffd5}
+.muted{color:#aaa;font-size:12px}
+</style>
+</head>
+
+<body>
+
+<h2>Live Next Result Predictor</h2>
+
+<div class="box" id="status">Loading…</div>
+
+<div class="box">
+  <div class="muted">Next Period</div>
+  <div id="nextPeriod">---</div>
+</div>
+
+<div class="box">
+  <div class="muted">Prediction</div>
+  <div id="prediction">---</div>
+</div>
+
+<div class="box muted" id="timeBox">---</div>
+
+<div class="box">
+  <table>
+    <thead>
+      <tr>
+        <th>Period</th>
+        <th>Number</th>
+        <th>Size</th>
+        <th>Color</th>
+      </tr>
+    </thead>
+    <tbody id="dataTable"></tbody>
+  </table>
+</div>
+
+<script>
+const API_URL = "https://harshpredictor.site/api/api.php";
+
+function getSize(n){ return n >= 5 ? "BIG" : "SMALL"; }
+function normalizeColor(c){
+  if(c.includes("green")) return "green";
+  if(c.includes("red")) return "red";
+  return "violet";
+}
+
+async function fetchAndPredict(){
+  const status = document.getElementById("status");
+  status.innerText = "Fetching data…";
+
+  const res = await fetch(API_URL,{cache:"no-store"});
+  const json = await res.json();
+  let list = json?.data?.list;
+
+  if(!Array.isArray(list) || list.length < 10){
+    status.innerText = "No data";
+    return;
+  }
+
+  /* ✅ SINGLE SOURCE OF TRUTH */
+  list = list
+    .map(r=>({...r, issueNumber:Number(r.issueNumber)}))
+    .sort((a,b)=>b.issueNumber - a.issueNumber);
+
+  const latest = list[0];   // THIS is the true latest row
+  const nextPeriod = latest.issueNumber + 1;
+
+  document.getElementById("nextPeriod").innerText = nextPeriod;
+
+  /* ✅ TRANSITION LEARNING */
+  const transitions = {};
+  for(let i=0;i<list.length-1;i++){
+    const key =
+      list[i].number + "|" +
+      getSize(list[i].number) + "|" +
+      normalizeColor(list[i].color);
+
+    const nextNum = Number(list[i+1].number);
+    transitions[key] ??= {};
+    transitions[key][nextNum] = (transitions[key][nextNum] || 0) + 1;
+  }
+
+  /* ✅ PREDICTION FROM LATEST ONLY */
+  const key =
+    latest.number + "|" +
+    getSize(latest.number) + "|" +
+    normalizeColor(latest.color);
+
+  let predicted = latest.number;
+  if(transitions[key]){
+    predicted = Object.entries(transitions[key])
+      .sort((a,b)=>b[1]-a[1])[0][0];
+  }
+
+  predicted = Number(predicted);
+  const size = getSize(predicted);
+
+  document.getElementById("prediction").innerHTML = `
+    <span class="pred">${predicted}</span><br>
+    Size: <span class="${size.toLowerCase()}">${size}</span>
+  `;
+
+  /* ✅ TABLE (same sorted data) */
+  const tbody = document.getElementById("dataTable");
+  tbody.innerHTML = "";
+  list.forEach(row=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${row.issueNumber}</td>
+      <td>${row.number}</td>
+      <td class="${getSize(row.number).toLowerCase()}">${getSize(row.number)}</td>
+      <td class="${normalizeColor(row.color)}">${row.color}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById("timeBox").innerText =
+    "Updated at " + new Date().toLocaleTimeString();
+
+  status.innerText = "Prediction ready ✔";
+}
+
+fetchAndPredict();
+setInterval(fetchAndPredict,60000);
+</script>
+
+</body>
+</html>
